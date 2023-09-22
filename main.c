@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <string.h>
 #include <math.h>
 #include <pthread.h>
 #include <termios.h>
@@ -10,8 +11,8 @@
 #define HEIGHT 100
 #define SHAPE_WIDTH 20
 #define SHAPE_HEIGHT 20
-#define ANGLE 2
-#define SLEEP_TIME 0.1
+#define ANGLE 10
+#define SLEEP_TIME 0.05
 
 typedef struct {
 	float x;
@@ -57,11 +58,47 @@ void print_shape_on_fg_buffer(void)
 	{
 		for (int j = 0; j < SHAPE_HEIGHT; j++)
 		{
-			fg_buffer[ (offset_y + i * WIDTH) + offset_x + j] = fg_c;
+			fg_buffer[ (offset_y + i) * WIDTH + offset_x + j] = fg_c;
 		}
 	}
 }
 
+void blit_buffers(char* dest, const char* src)
+{
+	for (int i = 0; i < WIDTH * HEIGHT; i++)
+	{
+		if (src[i] == fg_c)
+		{
+			dest[i] = src[i];
+		}
+	}
+}
+
+void rotate_shape(void)
+{
+	float angle = ( (float) ANGLE / 180 ) * M_PI;
+	char temp[HEIGHT * WIDTH] = {0};
+	for (int i = 0; i < WIDTH * HEIGHT; i++)
+	{
+		if (fg_buffer[i] == fg_c)
+		{
+
+			int col = i % WIDTH;
+			int row = i / WIDTH;
+			int x = col - WIDTH / 2;
+			int y = HEIGHT - row - HEIGHT / 2;
+			int new_x = round( x * cos(angle) - y * sin(angle) );
+			int new_y = round( x * sin(angle) + y * cos(angle) );
+			int new_col = WIDTH / 2 + new_x;
+			int new_row = HEIGHT / 2 - new_y;
+			temp[new_row * WIDTH + new_col] = fg_c;
+		}
+	}
+	memset(fg_buffer, 0, HEIGHT * WIDTH);
+	blit_buffers(fg_buffer, temp);
+}
+
+/*
 Point rotate_point ( const Point p )
 {
 	// convert to radians
@@ -80,7 +117,6 @@ void set_point ( const Point p )
 	int row = HEIGHT / 2 - round(p.y);
 	old_shape_buffer[row][col] = fg_c;
 }
-
 
 void* exit_on_keypress(void* ptr)
 {
@@ -111,6 +147,7 @@ void* draw_buffer(void* ptr)
 
 	return NULL;
 }
+*/
 
 int main()
 {
@@ -132,8 +169,20 @@ int main()
 	pthread_join(draw_thread, NULL);
 */
 
-	print_shape_on_buffer();
+	struct timespec ts;
+	ts.tv_sec = (int) SLEEP_TIME;
+	ts.tv_nsec = ( SLEEP_TIME - ts.tv_sec ) * 1e+9;
 
+	print_shape_on_fg_buffer();
+
+	for (int i = 0; i < 200; i++)
+	{
+		rotate_shape();
+		fill_bg_buffer(bg_c);
+		blit_buffers(bg_buffer, fg_buffer);
+		print_bg_buffer();
+		nanosleep(&ts, NULL);
+	}
 
 	// reset terminal settings
 	tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
