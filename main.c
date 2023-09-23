@@ -1,191 +1,120 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
 #include <math.h>
-#include <pthread.h>
-#include <termios.h>
-#include <sys/time.h>
+#include <time.h>
 
-#define WIDTH 100
-#define HEIGHT 100
-#define SHAPE_WIDTH 20
-#define SHAPE_HEIGHT 20
-#define ANGLE 10
-#define SLEEP_TIME 0.05
+#define WIDTH 50
+#define HEIGHT 50
+#define SIZE 20
+#define ANGLE 45
+#define ANGLE_SPACING 2.5
+#define SLEEP 0.1
 
-typedef struct {
-	float x;
-	float y;
-} Point;
+char fg_c = '@';
+char bg_c = '.';
+char buffer[HEIGHT * WIDTH];
 
-char bg_buffer[HEIGHT * WIDTH];
-char fg_buffer[HEIGHT * WIDTH];
-const char fg_c = '@';
-const char bg_c = '.';
-int done = 0;
-Point point;
+float angle_deg = ANGLE;
+float radius;
 
-void fill_bg_buffer(const char c)
+float deg_to_rad(float deg)
 {
-	for (int i = 0; i < HEIGHT; i++)
+	return deg / 180 * M_PI;
+}
+
+void calculate_radius(void)
+{
+	radius = (float) 0.5 * ( sqrt(pow(SIZE, 2) + pow(SIZE, 2)) );
+}
+
+void fill_buffer(void)
+{
+	for (int i = 0; i < HEIGHT * WIDTH; i++)
 	{
-		for (int j = 0; j < WIDTH; j++)
-		{
-			bg_buffer[i * WIDTH + j] = c;
-		}
+		buffer[i] = bg_c;
 	}
 }
 
-void print_bg_buffer(void)
+void print_buffer(void)
 {
 	for (int i = 0; i < HEIGHT; i++)
 	{
 		for (int j = 0; j < WIDTH; j++)
 		{
-			printf("%c ", bg_buffer[i * WIDTH + j]);
+			printf("%c ", buffer[i * WIDTH + j]);
 		}
 		printf("\n");
 	}
 }
 
-void print_shape_on_fg_buffer(void)
+char get_char_at(int x, int y)
 {
-	int offset_x = WIDTH / 2 - SHAPE_WIDTH / 2;
-	int offset_y = HEIGHT / 2 - SHAPE_HEIGHT / 2;
+	int row = HEIGHT / 2 - y;
+	int col = WIDTH / 2 + x - 1;
 
-	for (int i = 0; i < SHAPE_WIDTH; i++)
+	if ( row >= HEIGHT ) { printf("error: y value too small\n"); return 0; }
+	if ( row < 0 ) { printf("error: y value too big\n"); return 0; }
+	if ( col >= WIDTH ) { printf("error: x value too big\n"); return 0; }
+	if ( col < 0 ) { printf("error: x value too small\n"); return 0; }
+
+	return buffer[row * WIDTH + col];
+}
+
+void set_char_at(int x, int y, char c)
+{
+	int row = HEIGHT / 2 - y;
+	int col = WIDTH / 2 + x - 1;
+
+	if ( row >= HEIGHT ) { printf("error: y value too small\n"); return; }
+	if ( row < 0 ) { printf("error: y value too big\n"); return; }
+	if ( col >= WIDTH ) { printf("error: x value too big\n"); return; }
+	if ( col < 0 ) { printf("error: x value too small\n"); return; }
+
+	buffer[row * WIDTH + col] = c;
+}
+
+
+
+float f(int x, int y)
+{
+	float a = deg_to_rad(angle_deg);
+	return fabs( x * cos(a) - y * sin(a) ) + fabs( x * sin(a) + y * cos(a) );
+}
+
+void draw_in_buffer(void)
+{
+	for (int x = -24; x <= 25; x++)
 	{
-		for (int j = 0; j < SHAPE_HEIGHT; j++)
+		for (int y = -24; y <= 25; y++)
 		{
-			fg_buffer[ (offset_y + i) * WIDTH + offset_x + j] = fg_c;
+			if ( round( f(x,y) ) == round(radius) )
+			{
+				set_char_at(x, y, fg_c);
+			}
 		}
 	}
 }
 
-void blit_buffers(char* dest, const char* src)
-{
-	for (int i = 0; i < WIDTH * HEIGHT; i++)
-	{
-		if (src[i] == fg_c)
-		{
-			dest[i] = src[i];
-		}
-	}
-}
 
-void rotate_shape(void)
-{
-	float angle = ( (float) ANGLE / 180 ) * M_PI;
-	char temp[HEIGHT * WIDTH] = {0};
-	for (int i = 0; i < WIDTH * HEIGHT; i++)
-	{
-		if (fg_buffer[i] == fg_c)
-		{
-
-			int col = i % WIDTH;
-			int row = i / WIDTH;
-			int x = col - WIDTH / 2;
-			int y = HEIGHT - row - HEIGHT / 2;
-			int new_x = round( x * cos(angle) - y * sin(angle) );
-			int new_y = round( x * sin(angle) + y * cos(angle) );
-			int new_col = WIDTH / 2 + new_x;
-			int new_row = HEIGHT / 2 - new_y;
-			temp[new_row * WIDTH + new_col] = fg_c;
-		}
-	}
-	memset(fg_buffer, 0, HEIGHT * WIDTH);
-	blit_buffers(fg_buffer, temp);
-}
-
-/*
-Point rotate_point ( const Point p )
-{
-	// convert to radians
-	float angle = ( (float) ANGLE / 180 ) * M_PI;
-	
-	Point new_p;
-	new_p.x = p.x * cos(angle) - p.y * sin(angle);
-	new_p.y = p.x * sin(angle) + p.y * cos(angle);
-
-	return new_p;
-}
-
-void set_point ( const Point p )
-{
-	int col = WIDTH / 2 + round(p.x);
-	int row = HEIGHT / 2 - round(p.y);
-	old_shape_buffer[row][col] = fg_c;
-}
-
-void* exit_on_keypress(void* ptr)
-{
-	if ( getc(stdin) )
-	{
-		done = 1;
-	}
-
-	return NULL;
-}
-
-void* draw_buffer(void* ptr)
-{
-	while (!done)
-	{
-		system("clear");
-
-		point = rotate_point(point);
-		set_point(point);
-	
-		print_buffer();
-		
-		struct timespec ts;
-		ts.tv_sec = (int) SLEEP_TIME;
-		ts.tv_nsec = ( SLEEP_TIME - ts.tv_sec ) * 1e+9;
-		nanosleep(&ts, NULL);
-	}
-
-	return NULL;
-}
-*/
 
 int main()
 {
-	// this code makes it possible to quit the program when any key is pressed
-	struct termios oldt, newt;
-	tcgetattr(STDIN_FILENO, &oldt);
-	newt = oldt;
-	newt.c_lflag &= ~(ICANON | ECHO);
-	tcsetattr(STDIN_FILENO, TCSANOW, &newt);
-/*
-	fill_buffer(bg_c);
+	calculate_radius();
 
-	point.x = 40;
-	point.y = 0;
+	struct timespec t;
+	t.tv_sec = (int) SLEEP;
+	t.tv_nsec = ( SLEEP - t.tv_sec ) * 1e9;
 
-	pthread_t terminate_thread, draw_thread;
-	pthread_create(&terminate_thread, NULL, exit_on_keypress, NULL);
-	pthread_create(&draw_thread, NULL, draw_buffer, NULL);
-	pthread_join(draw_thread, NULL);
-*/
-
-	struct timespec ts;
-	ts.tv_sec = (int) SLEEP_TIME;
-	ts.tv_nsec = ( SLEEP_TIME - ts.tv_sec ) * 1e+9;
-
-	print_shape_on_fg_buffer();
-
-	for (int i = 0; i < 200; i++)
+	for (;;)
 	{
-		rotate_shape();
-		fill_bg_buffer(bg_c);
-		blit_buffers(bg_buffer, fg_buffer);
-		print_bg_buffer();
-		nanosleep(&ts, NULL);
-	}
+		system("clear");
+		fill_buffer();
+		draw_in_buffer();
+		angle_deg += ANGLE_SPACING;
 
-	// reset terminal settings
-	tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+		print_buffer();
+		nanosleep(&t, NULL);
+	}
 
 	return 0;
 }
